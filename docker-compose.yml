@@ -1,0 +1,42 @@
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: assignment
+      MYSQL_USER: assignment
+      MYSQL_PASSWORD: assignment
+      MYSQL_ROOT_PASSWORD: root-assignment
+      TZ: UTC
+    ports:
+      - "53306:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uassignment -passignment --silent",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - assignment-db:/var/lib/mysql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: mysql+pymysql://assignment:assignment@db:3306/assignment?charset=utf8mb4
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/workspace
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  assignment-db:

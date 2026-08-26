@@ -1,0 +1,2 @@
+ALTER TABLE payment_events
+ADD COLUMN event_id VARCHAR(40) NULL UNIQUE;

@@ -1,0 +1,15 @@
+.env
+.claude/
+.codex/
+.agents/
+.pytest_cache/
+.ruff_cache/
+.venv/
+__pycache__/
+*.py[cod]
+*.zip
+dist/
+
+# Local evaluation materials. Do not include them in submission archives.
+/internal/
+/grading/

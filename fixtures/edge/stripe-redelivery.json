@@ -1,0 +1,13 @@
+{
+  "id": "evt_demo_1001",
+  "type": "checkout.session.completed",
+  "data": {
+    "object": {
+      "id": "cs_demo_1099",
+      "client_reference_id": "pay_demo_stripe_001",
+      "amount_total": 7700,
+      "currency": "usd",
+      "payment_status": "paid"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+# Keep local evaluation materials out of Git archives.
+grading export-ignore
+grading/** export-ignore
+internal export-ignore
+internal/** export-ignore
+.gitattributes export-ignore
