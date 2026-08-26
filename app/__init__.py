@@ -1,0 +1,1 @@
+"""Payment callback migration assignment."""
