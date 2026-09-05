@@ -10,6 +10,4 @@ __pycache__/
 *.zip
 dist/
 
-# Local evaluation materials. Do not include them in submission archives.
-/internal/
 /grading/
