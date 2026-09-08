@@ -21,11 +21,15 @@ func NewDependencies(cfg *config.Config) (*Dependencies, error) {
 	transactionManager := database.NewTransactionManager(db)
 	orderRepository := repository.NewOrderRepository(db)
 	paymentRepository := repository.NewPaymentRepository(db)
+	paymentEventRepository := repository.NewPaymentEventRepository(db)
+	outboxMessageRepository := repository.NewOutboxMessageRepository(db)
 
 	paymentService := service.NewPaymentCallbackService(
 		transactionManager,
 		orderRepository,
 		paymentRepository,
+		paymentEventRepository,
+		outboxMessageRepository,
 	)
 
 	paymentHandler := handler.NewPaymentCallbackHandler(
