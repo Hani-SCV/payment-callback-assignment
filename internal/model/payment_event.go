@@ -1,12 +1,16 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/datatypes"
+)
 
 type PaymentEvent struct {
-    ID        int64
-    EventID   *string
-    PaymentID int64
-    EventType string
-    Payload   []byte
-    CreatedAt time.Time
+	ID        uint           `gorm:"primaryKey"`
+	PaymentID uint           `gorm:"not null"`
+	EventID   *string        `gorm:"unique"`
+	EventType string         `gorm:"not null"`
+	Payload   datatypes.JSON `gorm:"not null"`
+	CreatedAt time.Time
 }
