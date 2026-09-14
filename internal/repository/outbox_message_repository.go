@@ -29,4 +29,3 @@ func (r *OutboxMessageRepository) Create(
 ) error {
 	return r.db.WithContext(ctx).Create(event).Error
 }
-

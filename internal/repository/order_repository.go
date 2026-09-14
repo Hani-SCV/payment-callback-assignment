@@ -51,4 +51,3 @@ func (r *OrderRepository) MarkAsPaid(
 		Where("id = ?", orderId).
 		Update("status", "PAID").Error
 }
-
