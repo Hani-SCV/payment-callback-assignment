@@ -120,26 +120,26 @@ func TestTossReturnIsIdempotent(t *testing.T) {
 
 	var payment model.Payment
 	require.NoError(t,
-			db.Where("public_id = ?", "pay_demo_toss_001").
-					First(&payment).Error,
+		db.Where("public_id = ?", "pay_demo_toss_001").
+			First(&payment).Error,
 	)
 
 	assert.Equal(t, "COMPLETED", payment.Status)
 
 	var eventCount int64
 	require.NoError(t,
-			db.Model(&model.PaymentEvent{}).
-					Where("payment_id = ?", payment.ID).
-					Count(&eventCount).Error,
+		db.Model(&model.PaymentEvent{}).
+			Where("payment_id = ?", payment.ID).
+			Count(&eventCount).Error,
 	)
 
 	assert.Equal(t, int64(1), eventCount)
 
 	var outboxCount int64
 	require.NoError(t,
-			db.Model(&model.OutboxMessage{}).
-					Where("deduplication_key = ?", payment.PublicID).
-					Count(&outboxCount).Error,
+		db.Model(&model.OutboxMessage{}).
+			Where("deduplication_key = ?", payment.PublicID).
+			Count(&outboxCount).Error,
 	)
 
 	assert.Equal(t, int64(1), outboxCount)
@@ -163,7 +163,7 @@ func TestTossReturnRejectsDifferentTransactionID(t *testing.T) {
 	req, firstRec := setupTestRequest(firstBody)
 	router.ServeHTTP(firstRec, req)
 	require.Equal(t, http.StatusOK, firstRec.Code)
-	
+
 	req, secondRec := setupTestRequest(secondBody)
 	router.ServeHTTP(secondRec, req)
 	require.Equal(t, http.StatusBadRequest, secondRec.Code)
@@ -176,4 +176,33 @@ func TestTossReturnRejectsDifferentTransactionID(t *testing.T) {
 
 	assert.Equal(t, model.PaymentStatusCompleted, payment.Status)
 	assert.Equal(t, "toss_key_demo_1001", *payment.ExternalTransactionID)
+}
+
+func TestTossReturnRejectsAmountMismatch(t *testing.T) {
+	db, router := setupTest(t)
+
+	body := `{
+		"paymentKey": "toss_key_demo_1001",
+		"orderId": "pay_demo_toss_001",
+		"amount": 100000
+	}`
+
+	req, rec := setupTestRequest(body)
+
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var payment model.Payment
+	require.NoError(t,
+		db.Where("public_id = ?", "pay_demo_toss_001").
+			First(&payment).Error,
+	)
+	assert.Equal(t, model.PaymentStatusPending, payment.Status)
+
+	var order model.Order
+	require.NoError(t,
+		db.Where("public_id = ?", "ord_demo_1001").
+			First(&order).Error,
+	)
+	assert.Equal(t, "PAYMENT_PENDING", order.Status)
 }
