@@ -9,6 +9,7 @@ import (
 	"github.com/Hani-SCV/payment-callback-assignment/internal/errors"
 	"github.com/Hani-SCV/payment-callback-assignment/internal/model"
 	"github.com/Hani-SCV/payment-callback-assignment/internal/repository"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -20,19 +21,26 @@ type PaymentCallbackService struct {
 	outboxMessageRepository *repository.OutboxMessageRepository
 }
 
+type Repositories struct {
+	Order        *repository.OrderRepository
+	Payment      *repository.PaymentRepository
+	PaymentEvent *repository.PaymentEventRepository
+	Outbox       *repository.OutboxMessageRepository
+}
+
 type PaymentEventPayload struct {
-	Provider      string `json:"provider"`
-	TransactionID string `json:"transaction_id"`
-	Amount        int64  `json:"amount"`
-	Currency      string `json:"currency"`
+	Provider      string          `json:"provider"`
+	TransactionID string          `json:"transaction_id"`
+	Amount        decimal.Decimal `json:"amount"`
+	Currency      string          `json:"currency"`
 }
 
 type OutboxMessagePayload struct {
-	Provider      string `json:"provider"`
-	PaymentID     string `json:"public_id"`
-	TransactionID string `json:"transaction_id"`
-	Amount        int64  `json:"amount"`
-	Currency      string `json:"currency"`
+	Provider      string          `json:"provider"`
+	PaymentID     string          `json:"public_id"`
+	TransactionID string          `json:"transaction_id"`
+	Amount        decimal.Decimal `json:"amount"`
+	Currency      string          `json:"currency"`
 }
 
 func NewPaymentCallbackService(
@@ -51,12 +59,21 @@ func NewPaymentCallbackService(
 	}
 }
 
+func (s *PaymentCallbackService) repositoriesWithTx(tx *gorm.DB) *Repositories {
+	return &Repositories{
+		Order:        s.orderRepository.WithTx(tx),
+		Payment:      s.paymentRepository.WithTx(tx),
+		PaymentEvent: s.paymentEventRepository.WithTx(tx),
+		Outbox:       s.outboxMessageRepository.WithTx(tx),
+	}
+}
+
 func createPaymentEvent(
 	ctx context.Context,
 	repo *repository.PaymentEventRepository,
 	payment *model.Payment,
 	transactionID string,
-	amount int64,
+	amount decimal.Decimal,
 	currency string,
 ) error {
 	payload := PaymentEventPayload{
@@ -86,7 +103,7 @@ func createOutboxMessage(
 	repo *repository.OutboxMessageRepository,
 	payment *model.Payment,
 	transactionID string,
-	amount int64,
+	amount decimal.Decimal,
 	currency string,
 ) error {
 	payload := OutboxMessagePayload{
@@ -108,7 +125,7 @@ func createOutboxMessage(
 		AggregateType:    "payment",
 		AggregateID:      payment.PublicID,
 		Payload:          jsonData,
-		Status:           "PENDING",
+		Status:           model.PaymentStatusPending,
 	}
 
 	return repo.Create(ctx, event)
@@ -119,13 +136,10 @@ func (s *PaymentCallbackService) ProcessTossReturn(
 	req model.TossReturnRequest,
 ) error {
 	return s.transactionManager.WithTransaction(ctx, func(tx *gorm.DB) error {
-		orderRepository := s.orderRepository.WithTx(tx)
-		paymentRepository := s.paymentRepository.WithTx(tx)
-		paymentEventRepository := s.paymentEventRepository.WithTx(tx)
-		outboxMessageRepository := s.outboxMessageRepository.WithTx(tx)
+		repos := s.repositoriesWithTx(tx)
 
 		// Payment 잠금
-		payment, err := paymentRepository.FindByPublicIDForUpdate(
+		payment, err := repos.Payment.FindByPublicIDForUpdate(
 			ctx,
 			req.OrderID,
 		)
@@ -134,7 +148,7 @@ func (s *PaymentCallbackService) ProcessTossReturn(
 		}
 
 		// Order 잠금
-		order, err := orderRepository.FindByIDForUpdate(
+		order, err := repos.Order.FindByIDForUpdate(
 			ctx,
 			payment.OrderID,
 		)
@@ -142,49 +156,58 @@ func (s *PaymentCallbackService) ProcessTossReturn(
 			return err
 		}
 
-		// TODO: 결제 제공자 검증
+		// 결제 제공자 검증
 		if payment.Provider != "TOSS" {
 			return errors.ErrInvalidProvider
 		}
-		// TODO: 이미 처리된 동일 콜백인지 확인
-		if payment.Status == "COMPLETED" {
+
+		// 이미 처리된 결제 검증 (중복 콜백은 정상 처리한다.)
+		if payment.Status == model.PaymentStatusCompleted {
+			if payment.ExternalTransactionID != nil &&
+				*payment.ExternalTransactionID == req.PaymentKey {
+				return nil
+			}
 			return errors.ErrInvalidPaymentStatus
 		}
 
-		// TODO: 처리 가능한 결제 상태인지 확인
-		if payment.Status != "PENDING" {
+		// 처리 가능한 결제 상태인지 확인
+		if payment.Status != model.PaymentStatusPending {
 			return errors.ErrInvalidPaymentStatus
 		}
 
-		// TODO: 주문 상태 검증
+		// 주문 상태 검증
 		if order.Status != "PAYMENT_PENDING" {
 			return errors.ErrInvalidOrderStatus
 		}
 
-		// TODO: 금액 검증
-		if payment.Amount != req.Amount {
+		// 금액 검증
+		if !payment.Amount.Equal(req.Amount) {
 			return errors.ErrInvalidAmount
 		}
 
-		// TODO: 통화 검증
+		// 통화 검증
 		if payment.Currency != "KRW" {
 			return errors.ErrInvalidCurrency
 		}
 
-		// TODO: 결제 완료
-		if err := paymentRepository.Complete(ctx, payment.ID); err != nil {
+		// 결제 완료
+		if err := repos.Payment.Complete(
+			ctx,
+			payment.ID,
+			req.PaymentKey,
+		); err != nil {
 			return errors.ErrInvalidPaymentStatus
 		}
 
-		// TODO: 주문 완료
-		if err := orderRepository.MarkAsPaid(ctx, order.ID); err != nil {
+		// 주문 완료
+		if err := repos.Order.MarkAsPaid(ctx, order.ID); err != nil {
 			return errors.ErrInvalidOrderStatus
 		}
 
-		// TODO: PaymentEvent 저장
+		// PaymentEvent 저장
 		if err := createPaymentEvent(
 			ctx,
-			paymentEventRepository,
+			repos.PaymentEvent,
 			payment,
 			req.PaymentKey,
 			req.Amount,
@@ -193,10 +216,10 @@ func (s *PaymentCallbackService) ProcessTossReturn(
 			return err
 		}
 
-		// TODO: Outbox 저장
+		// Outbox 저장
 		if err := createOutboxMessage(
 			ctx,
-			outboxMessageRepository,
+			repos.Outbox,
 			payment,
 			req.PaymentKey,
 			req.Amount,
