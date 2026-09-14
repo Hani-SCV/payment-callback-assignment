@@ -2,8 +2,10 @@ package handler
 
 import (
 	"encoding/json"
+	stderrors "errors"
 	"net/http"
 
+	"github.com/Hani-SCV/payment-callback-assignment/internal/errors"
 	"github.com/Hani-SCV/payment-callback-assignment/internal/model"
 	"github.com/Hani-SCV/payment-callback-assignment/internal/service"
 )
@@ -22,11 +24,20 @@ func (h *PaymentCallbackHandler) TossReturn(w http.ResponseWriter, r *http.Reque
 	var req model.TossReturnRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
+		http.Error(w, "invalid request", http.StatusInternalServerError)
 		return
 	}
 
 	if err := h.service.ProcessTossReturn(r.Context(), req); err != nil {
+		if stderrors.Is(err, errors.ErrInvalidProvider) ||
+			stderrors.Is(err, errors.ErrInvalidPaymentStatus) ||
+			stderrors.Is(err, errors.ErrInvalidOrderStatus) ||
+			stderrors.Is(err, errors.ErrInvalidAmount) ||
+			stderrors.Is(err, errors.ErrInvalidCurrency) {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -38,3 +49,4 @@ func (h *PaymentCallbackHandler) TossReturn(w http.ResponseWriter, r *http.Reque
 		"message": "received",
 	})
 }
+
