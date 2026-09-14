@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/Hani-SCV/payment-callback-assignment/internal/model"
 	"gorm.io/gorm"
@@ -45,9 +46,16 @@ func (r *PaymentRepository) FindByPublicIDForUpdate(
 func (r *PaymentRepository) Complete(
 	ctx context.Context,
 	paymentID uint,
+	transactionID string,
 ) error {
+	now := time.Now()
+
 	return r.db.WithContext(ctx).
 		Model(&model.Payment{}).
 		Where("id = ?", paymentID).
-		Update("status", "COMPLETED").Error
+		Updates(map[string]interface{}{
+			"status":                  model.PaymentStatusCompleted,
+			"external_transaction_id": transactionID,
+			"completed_at":            now,
+		}).Error
 }
