@@ -6,7 +6,8 @@ import (
 	"net/http"
 
 	"github.com/Hani-SCV/payment-callback-assignment/internal/errors"
-	"github.com/Hani-SCV/payment-callback-assignment/internal/model"
+	"github.com/Hani-SCV/payment-callback-assignment/internal/request"
+	"github.com/Hani-SCV/payment-callback-assignment/internal/response"
 	"github.com/Hani-SCV/payment-callback-assignment/internal/service"
 )
 
@@ -21,32 +22,73 @@ func NewPaymentCallbackHandler(service *service.PaymentCallbackService) *Payment
 }
 
 func (h *PaymentCallbackHandler) TossReturn(w http.ResponseWriter, r *http.Request) {
-	var req model.TossReturnRequest
+	var req request.TossReturnRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request")
 		return
 	}
 
 	if err := h.service.ProcessTossReturn(r.Context(), req); err != nil {
-		if stderrors.Is(err, errors.ErrInvalidProvider) ||
-			stderrors.Is(err, errors.ErrInvalidPaymentStatus) ||
-			stderrors.Is(err, errors.ErrInvalidOrderStatus) ||
-			stderrors.Is(err, errors.ErrInvalidAmount) ||
-			stderrors.Is(err, errors.ErrInvalidCurrency) {
-			http.Error(w, "invalid request", http.StatusBadRequest)
+		var appErr *errors.AppError
+
+		if stderrors.As(err, &appErr) {
+			writeError(
+				w,
+				appErr.StatusCode,
+				appErr.Code,
+				appErr.Message,
+			)
 			return
 		}
 
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		writeError(
+			w,
+			http.StatusInternalServerError,
+			"INTERNAL_SERVER_ERROR",
+			"internal server error",
+		)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	writeJSON(w, http.StatusOK, response.PaymentCallbackResponse{
+		Result:      "completed",
+		PaymentID:   req.OrderID,
+		OrderStatus: "PAID",
+	})
+}
 
-	json.NewEncoder(w).Encode(map[string]string{
+func (h *PaymentCallbackHandler) StripeWebhook(w http.ResponseWriter, r *http.Request) {
+	var req request.StripeWebhookRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid request")
+		return
+	}
+
+	// TODO: service.ProcessStripeWebhook(...)
+
+	writeJSON(w, http.StatusOK, map[string]string{
 		"message": "received",
 	})
 }
 
+func (h *PaymentCallbackHandler) AlipayNotify(w http.ResponseWriter, r *http.Request) {
+	// TODO: form parsing
+}
+
+func writeJSON(w http.ResponseWriter, status int, data any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+
+	_ = json.NewEncoder(w).Encode(data)
+}
+
+func writeError(w http.ResponseWriter, status int, code, message string) {
+	writeJSON(w, status, response.ErrorResponse{
+		Error: response.ErrorDetail{
+			Code:    code,
+			Message: message,
+		},
+	})
+}
