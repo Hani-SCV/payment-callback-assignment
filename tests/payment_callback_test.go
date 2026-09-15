@@ -9,6 +9,7 @@ import (
 	"github.com/Hani-SCV/payment-callback-assignment/internal/app"
 	"github.com/Hani-SCV/payment-callback-assignment/internal/config"
 	"github.com/Hani-SCV/payment-callback-assignment/internal/model"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
@@ -205,4 +206,174 @@ func TestTossReturnRejectsAmountMismatch(t *testing.T) {
 			First(&order).Error,
 	)
 	assert.Equal(t, "PAYMENT_PENDING", order.Status)
+}
+
+func TestTossReturnRejectsInvalidProvider(t *testing.T) {
+	db, router := setupTest(t)
+
+	var order model.Order
+	require.NoError(t,
+		db.Where("public_id = ?", "ord_demo_1001").
+			First(&order).Error,
+	)
+
+	stripePayment := model.Payment{
+		PublicID: "pay_demo_stripe_001",
+		OrderID:  order.ID,
+		Provider: "STRIPE",
+		Status:   "PENDING",
+		Amount:   decimal.NewFromInt(129900),
+		Currency: "KRW",
+	}
+
+	require.NoError(t, db.Create(&stripePayment).Error)
+
+	body := `{
+		"paymentKey": "toss_key_demo_1001",
+		"orderId": "pay_demo_stripe_001",
+		"amount": 129900
+	}`
+
+	req, rec := setupTestRequest(body)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var payment model.Payment
+	require.NoError(t,
+		db.Where("public_id = ?", "pay_demo_stripe_001").
+			First(&payment).Error,
+	)
+
+	assert.Equal(t, "STRIPE", payment.Provider)
+	assert.Equal(t, model.PaymentStatusPending, payment.Status)
+	assert.Nil(t, payment.ExternalTransactionID)
+	assert.Nil(t, payment.CompletedAt)
+}
+
+func TestTossReturnRejectsInvalidCurrency(t *testing.T) {
+	db, router := setupTest(t)
+
+	require.NoError(t,
+		db.Model(&model.Payment{}).
+			Where("public_id = ?", "pay_demo_toss_001").
+			Update("currency", "CNY").Error,
+	)
+
+	body := `{
+		"paymentKey": "toss_key_demo_1001",
+		"orderId": "pay_demo_toss_001",
+		"amount": 129900
+	}`
+
+	req, rec := setupTestRequest(body)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var payment model.Payment
+	require.NoError(t,
+		db.Where("public_id = ?", "pay_demo_toss_001").
+			First(&payment).Error,
+	)
+
+	assert.Equal(t, "CNY", payment.Currency)
+	assert.Equal(t, model.PaymentStatusPending, payment.Status)
+	assert.Nil(t, payment.ExternalTransactionID)
+	assert.Nil(t, payment.CompletedAt)
+}
+
+func TestTossReturnRejectsInvalidOrderStatus(t *testing.T) {
+	db, router := setupTest(t)
+
+	require.NoError(t,
+		db.Model(&model.Order{}).
+			Where("public_id = ?", "ord_demo_1001").
+			Update("status", "PAID").Error,
+	)
+
+	body := `{
+		"paymentKey": "toss_key_demo_1001",
+		"orderId": "pay_demo_toss_001",
+		"amount": 129900
+	}`
+
+	req, rec := setupTestRequest(body)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var order model.Order
+	require.NoError(t,
+		db.Where("public_id = ?", "ord_demo_1001").
+			First(&order).Error,
+	)
+
+	assert.Equal(t, "PAID", order.Status)
+
+	var payment model.Payment
+	require.NoError(t,
+		db.Where("public_id = ?", "pay_demo_toss_001").
+			First(&payment).Error,
+	)
+
+	assert.Equal(t, model.PaymentStatusPending, payment.Status)
+	assert.Nil(t, payment.ExternalTransactionID)
+	assert.Nil(t, payment.CompletedAt)
+}
+
+func TestTossReturnRejectsInvalidPaymentStatus(t *testing.T) {
+	db, router := setupTest(t)
+
+	require.NoError(t,
+		db.Model(&model.Payment{}).
+			Where("public_id = ?", "pay_demo_toss_001").
+			Update("status", "FAILED").Error,
+	)
+
+	body := `{
+		"paymentKey": "toss_key_demo_1001",
+		"orderId": "pay_demo_toss_001",
+		"amount": 129900
+	}`
+
+	req, rec := setupTestRequest(body)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var payment model.Payment
+	require.NoError(t,
+		db.Where("public_id = ?", "pay_demo_toss_001").
+			First(&payment).Error,
+	)
+
+	assert.Equal(t, model.PaymentStatusFailed, payment.Status)
+	assert.Nil(t, payment.ExternalTransactionID)
+	assert.Nil(t, payment.CompletedAt)
+}
+
+func TestTossReturnRejectsNonExistentPayment(t *testing.T) {
+	_, router := setupTest(t)
+
+	body := `{
+		"paymentKey": "toss_key_demo_100",
+		"orderId": "pay_demo_toss_01",
+		"amount": 129900
+	}`
+
+	req, rec := setupTestRequest(body)
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}
+
+func TestTossReturnRejectsInvalidJSON(t *testing.T) {
+	_, router := setupTest(t)
+
+	body := `invalid json`
+
+	req, rec := setupTestRequest(body)
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }

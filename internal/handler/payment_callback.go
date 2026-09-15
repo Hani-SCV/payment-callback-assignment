@@ -24,7 +24,7 @@ func (h *PaymentCallbackHandler) TossReturn(w http.ResponseWriter, r *http.Reque
 	var req model.TossReturnRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request", http.StatusInternalServerError)
+		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
