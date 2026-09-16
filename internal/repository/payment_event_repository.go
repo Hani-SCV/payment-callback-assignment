@@ -29,3 +29,17 @@ func (r *PaymentEventRepository) Create(
 ) error {
 	return r.db.WithContext(ctx).Create(event).Error
 }
+
+func (r *PaymentEventRepository) FindByEventID(
+	ctx context.Context,
+	eventID string,
+) (*model.PaymentEvent, error) {
+	var event model.PaymentEvent
+
+	err := r.db.WithContext(ctx).Where("event_id = ?", eventID).First(&event).Error
+	if err != nil {
+		return nil, err
+	}
+
+	return &event, nil
+}

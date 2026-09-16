@@ -8,11 +8,19 @@ type TossReturnRequest struct {
 	Amount     decimal.Decimal `json:"amount"`
 }
 
+type StripeCheckoutSession struct {
+	ID                string `json:"id"`
+	ClientReferenceID string `json:"client_reference_id"`
+	AmountTotal       int64  `json:"amount_total"`
+	Currency          string `json:"currency"`
+	PaymentStatus     string `json:"payment_status"`
+}
+
 type StripeWebhookRequest struct {
 	ID   string `json:"id"`
 	Type string `json:"type"`
 	Data struct {
-		Object map[string]any `json:"object"`
+		Object StripeCheckoutSession `json:"object"`
 	} `json:"data"`
 }
 

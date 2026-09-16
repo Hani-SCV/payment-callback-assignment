@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	stderrors "errors"
 
 	"encoding/json"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/Hani-SCV/payment-callback-assignment/internal/errors"
 	"github.com/Hani-SCV/payment-callback-assignment/internal/model"
 	"github.com/Hani-SCV/payment-callback-assignment/internal/repository"
+	"github.com/Hani-SCV/payment-callback-assignment/internal/request"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
@@ -72,6 +74,7 @@ func createPaymentEvent(
 	ctx context.Context,
 	repo *repository.PaymentEventRepository,
 	payment *model.Payment,
+	eventID string,
 	transactionID string,
 	amount decimal.Decimal,
 	currency string,
@@ -85,12 +88,12 @@ func createPaymentEvent(
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		return errors.ErrInvalidPaymentStatus
+		return err
 	}
 
 	event := &model.PaymentEvent{
 		PaymentID: payment.ID,
-		EventID:   &transactionID,
+		EventID:   &eventID,
 		EventType: "PAYMENT_COMPLETED",
 		Payload:   jsonData,
 	}
@@ -133,7 +136,7 @@ func createOutboxMessage(
 
 func (s *PaymentCallbackService) ProcessTossReturn(
 	ctx context.Context,
-	req model.TossReturnRequest,
+	req request.TossReturnRequest,
 ) error {
 	return s.transactionManager.WithTransaction(ctx, func(tx *gorm.DB) error {
 		repos := s.repositoriesWithTx(tx)
@@ -210,6 +213,7 @@ func (s *PaymentCallbackService) ProcessTossReturn(
 			repos.PaymentEvent,
 			payment,
 			req.PaymentKey,
+			req.PaymentKey,
 			req.Amount,
 			payment.Currency,
 		); err != nil {
@@ -225,6 +229,119 @@ func (s *PaymentCallbackService) ProcessTossReturn(
 			req.Amount,
 			payment.Currency,
 		); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
+
+func (s *PaymentCallbackService) ProcessStripeWebhook(
+	ctx context.Context,
+	req request.StripeWebhookRequest,
+) error {
+	return s.transactionManager.WithTransaction(ctx, func(tx *gorm.DB) error {
+		repos := s.repositoriesWithTx(tx)
+
+		// data.object에서 결제 정보 추출
+		object := req.Data.Object
+		transactionID := object.ID
+		paymentID := object.ClientReferenceID
+		amount := decimal.NewFromInt(object.AmountTotal)
+		currency := object.Currency
+		paymentStatus := object.PaymentStatus
+
+		// Stripe webhook event ID로 중복 이벤트 여부 확인
+		_, err := repos.PaymentEvent.FindByEventID(ctx, req.ID)
+		if err == nil {
+			return nil
+		}
+
+		if !stderrors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		// Stripe event type 확인
+		if req.Type != "checkout.session.completed" {
+			return errors.ErrInvalidEventType
+		}
+
+		// 결제 ID로 Payment 조회 및 row lock
+		payment, err := repos.Payment.FindByPublicIDForUpdate(ctx, paymentID)
+		if err != nil {
+			return err
+		}
+
+		// Payment에 연결된 Order 조회 및 row lock
+		order, err := repos.Order.FindByIDForUpdate(ctx, payment.OrderID)
+		if err != nil {
+			return err
+		}
+
+		// Provider가 STRIPE인지 검증
+		if payment.Provider != "STRIPE" {
+			return errors.ErrInvalidProvider
+		}
+
+		// 결제 상태 검증
+		// 이미 완료된 결제인데 새로운 이벤트가 들어온 경우
+		if payment.Status == model.PaymentStatusCompleted {
+			if payment.ExternalTransactionID != nil &&
+				*payment.ExternalTransactionID == transactionID {
+				return nil
+			}
+			return errors.ErrInvalidPaymentStatus
+		}
+
+		// PENDING 상태가 아닌지 체크
+		if payment.Status != model.PaymentStatusPending {
+			return errors.ErrInvalidPaymentStatus
+		}
+
+		// Order 상태 검증
+		if order.Status != "PAYMENT_PENDING" {
+			return errors.ErrInvalidOrderStatus
+		}
+
+		// Stripe 결제 금액과 Payment 금액 비교
+		if !payment.Amount.Equal(amount) {
+			return errors.ErrInvalidAmount
+		}
+
+		// Stripe 통화와 Payment 통화 비교
+		if payment.Currency != currency {
+			return errors.ErrInvalidCurrency
+		}
+
+		if paymentStatus != "paid" {
+			return errors.ErrInvalidPaymentStatus
+		}
+
+		// 결제 완료 처리
+		if err := repos.Payment.Complete(ctx, payment.ID, transactionID); err != nil {
+			return errors.ErrInvalidPaymentStatus
+		}
+
+		// Order PAID 처리
+		if err := repos.Order.MarkAsPaid(ctx, order.ID); err != nil {
+			return errors.ErrInvalidOrderStatus
+		}
+
+		// PaymentEvent 생성
+		if err := createPaymentEvent(
+			ctx,
+			repos.PaymentEvent,
+			payment,
+			req.ID,
+			transactionID,
+			amount,
+			currency,
+		); err != nil {
+			return err
+		}
+
+		// OutboxMessage 생성
+		if err := createOutboxMessage(ctx, repos.Outbox, payment, transactionID, amount, currency); err != nil {
 			return err
 		}
 
