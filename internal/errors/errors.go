@@ -40,4 +40,10 @@ var (
 		Message:    "invalid order status",
 		StatusCode: 409,
 	}
+
+	ErrInvalidEventType = &AppError{
+		Code:       "INVALID_EVENT_TYPE",
+		Message:    "invalid Stripe event type",
+		StatusCode: 400,
+	}
 )
