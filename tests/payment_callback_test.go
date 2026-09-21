@@ -16,7 +16,10 @@ import (
 	"gorm.io/gorm"
 )
 
-const TossReturnPath = "/v1/payment-callbacks/toss/return"
+const (
+	TossReturnPath    = "/v1/payment-callbacks/toss/return"
+	StripeWebhookPath = "/v1/payment-callbacks/stripe/webhook"
+)
 
 func setupTest(t *testing.T) (*gorm.DB, *http.ServeMux) {
 	t.Helper()
@@ -40,10 +43,10 @@ func setupTest(t *testing.T) (*gorm.DB, *http.ServeMux) {
 	return db, router
 }
 
-func setupTestRequest(body string) (*http.Request, *httptest.ResponseRecorder) {
+func setupTestRequest(path string, body string) (*http.Request, *httptest.ResponseRecorder) {
 	req := httptest.NewRequest(
 		http.MethodPost,
-		TossReturnPath,
+		path,
 		bytes.NewBufferString(body),
 	)
 
@@ -63,7 +66,7 @@ func TestTossReturnCompletesPayment(t *testing.T) {
 		"amount": 129900
 	}`
 
-	req, rec := setupTestRequest(body)
+	req, rec := setupTestRequest(TossReturnPath, body)
 
 	router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -110,10 +113,10 @@ func TestTossReturnIsIdempotent(t *testing.T) {
 		"amount": 129900
 	}`
 
-	req, firstRec := setupTestRequest(body)
+	req, firstRec := setupTestRequest(TossReturnPath, body)
 	router.ServeHTTP(firstRec, req)
 
-	req, secondRec := setupTestRequest(body)
+	req, secondRec := setupTestRequest(TossReturnPath, body)
 	router.ServeHTTP(secondRec, req)
 
 	require.Equal(t, http.StatusOK, firstRec.Code)
@@ -161,13 +164,13 @@ func TestTossReturnRejectsDifferentTransactionID(t *testing.T) {
 		"amount": 129900
 	}`
 
-	req, firstRec := setupTestRequest(firstBody)
+	req, firstRec := setupTestRequest(TossReturnPath, firstBody)
 	router.ServeHTTP(firstRec, req)
 	require.Equal(t, http.StatusOK, firstRec.Code)
 
-	req, secondRec := setupTestRequest(secondBody)
+	req, secondRec := setupTestRequest(TossReturnPath, secondBody)
 	router.ServeHTTP(secondRec, req)
-	require.Equal(t, http.StatusBadRequest, secondRec.Code)
+	require.Equal(t, http.StatusConflict, secondRec.Code)
 
 	var payment model.Payment
 	require.NoError(t,
@@ -188,10 +191,10 @@ func TestTossReturnRejectsAmountMismatch(t *testing.T) {
 		"amount": 100000
 	}`
 
-	req, rec := setupTestRequest(body)
+	req, rec := setupTestRequest(TossReturnPath, body)
 
 	router.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 
 	var payment model.Payment
 	require.NoError(t,
@@ -218,7 +221,7 @@ func TestTossReturnRejectsInvalidProvider(t *testing.T) {
 	)
 
 	stripePayment := model.Payment{
-		PublicID: "pay_demo_stripe_001",
+		PublicID: "pay_demo_toss_invalid_provider",
 		OrderID:  order.ID,
 		Provider: "STRIPE",
 		Status:   "PENDING",
@@ -230,18 +233,18 @@ func TestTossReturnRejectsInvalidProvider(t *testing.T) {
 
 	body := `{
 		"paymentKey": "toss_key_demo_1001",
-		"orderId": "pay_demo_stripe_001",
+		"orderId": "pay_demo_toss_invalid_provider",
 		"amount": 129900
 	}`
 
-	req, rec := setupTestRequest(body)
+	req, rec := setupTestRequest(TossReturnPath, body)
 	router.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 
 	var payment model.Payment
 	require.NoError(t,
-		db.Where("public_id = ?", "pay_demo_stripe_001").
+		db.Where("public_id = ?", "pay_demo_toss_invalid_provider").
 			First(&payment).Error,
 	)
 
@@ -266,10 +269,10 @@ func TestTossReturnRejectsInvalidCurrency(t *testing.T) {
 		"amount": 129900
 	}`
 
-	req, rec := setupTestRequest(body)
+	req, rec := setupTestRequest(TossReturnPath, body)
 	router.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 
 	var payment model.Payment
 	require.NoError(t,
@@ -298,10 +301,10 @@ func TestTossReturnRejectsInvalidOrderStatus(t *testing.T) {
 		"amount": 129900
 	}`
 
-	req, rec := setupTestRequest(body)
+	req, rec := setupTestRequest(TossReturnPath, body)
 	router.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, http.StatusConflict, rec.Code)
 
 	var order model.Order
 	require.NoError(t,
@@ -337,9 +340,9 @@ func TestTossReturnRejectsInvalidPaymentStatus(t *testing.T) {
 		"amount": 129900
 	}`
 
-	req, rec := setupTestRequest(body)
+	req, rec := setupTestRequest(TossReturnPath, body)
 	router.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Equal(t, http.StatusConflict, rec.Code)
 
 	var payment model.Payment
 	require.NoError(t,
@@ -361,7 +364,7 @@ func TestTossReturnRejectsNonExistentPayment(t *testing.T) {
 		"amount": 129900
 	}`
 
-	req, rec := setupTestRequest(body)
+	req, rec := setupTestRequest(TossReturnPath, body)
 	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusInternalServerError, rec.Code)
@@ -372,7 +375,167 @@ func TestTossReturnRejectsInvalidJSON(t *testing.T) {
 
 	body := `invalid json`
 
-	req, rec := setupTestRequest(body)
+	req, rec := setupTestRequest(TossReturnPath, body)
+	router.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestStripeWebhookCompletesPayment(t *testing.T) {
+	db, router := setupTest(t)
+
+	body := `{
+		"id": "evt_demo_1001",
+		"type": "checkout.session.completed",
+		"data": {
+			"object": {
+				"id": "cs_demo_1001",
+				"client_reference_id": "pay_demo_stripe_001",
+				"amount_total": 7700,
+				"currency": "usd",
+				"payment_status": "paid"
+			}
+		}
+	}`
+
+	req, rec := setupTestRequest(StripeWebhookPath, body)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var payment model.Payment
+	require.NoError(t,
+		db.Where("public_id = ?", "pay_demo_stripe_001").First(&payment).Error,
+	)
+
+	assert.Equal(t, model.PaymentStatusCompleted, payment.Status)
+}
+
+func TestStripeWebhookIsIdempotent(t *testing.T) {
+	_, router := setupTest(t)
+
+	body := `{
+		"id": "evt_demo_1001",
+		"type": "checkout.session.completed",
+		"data": {
+			"object": {
+				"id": "cs_demo_1001",
+				"client_reference_id": "pay_demo_stripe_001",
+				"amount_total": 7700,
+				"currency": "usd",
+				"payment_status": "paid"
+			}
+		}
+	}`
+
+	firstReq, firstRec := setupTestRequest(StripeWebhookPath, body)
+	secondReq, secondRec := setupTestRequest(StripeWebhookPath, body)
+
+	router.ServeHTTP(firstRec, firstReq)
+	router.ServeHTTP(secondRec, secondReq)
+
+	require.Equal(t, http.StatusOK, firstRec.Code)
+	require.Equal(t, http.StatusOK, secondRec.Code)
+}
+
+func TestStripeWebhookRejectsInvalidEventType(t *testing.T) {
+	_, router := setupTest(t)
+
+	body := `{
+		"id": "evt_demo_1001",
+		"type": "payment_intent.created",
+		"data": {
+			"object": {
+				"id": "cs_demo_1001",
+				"client_reference_id": "pay_demo_stripe_001",
+				"amount_total": 7700,
+				"currency": "usd",
+				"payment_status": "paid"
+			}
+		}
+	}`
+
+	req, rec := setupTestRequest(StripeWebhookPath, body)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestStripeWebhookRejectsAmountMismatch(t *testing.T) {
+	_, router := setupTest(t)
+
+	body := `{
+		"id": "evt_demo_1001",
+		"type": "checkout.session.completed",
+		"data": {
+			"object": {
+				"id": "cs_demo_1001",
+				"client_reference_id": "pay_demo_stripe_001",
+				"amount_total": 9999,
+				"currency": "usd",
+				"payment_status": "paid"
+			}
+		}
+	}`
+
+	req, rec := setupTestRequest(StripeWebhookPath, body)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+}
+
+func TestStripeWebhookRejectsCurrencyMismatch(t *testing.T) {
+	_, router := setupTest(t)
+
+	body := `{
+		"id": "evt_demo_1001",
+		"type": "checkout.session.completed",
+		"data": {
+			"object": {
+				"id": "cs_demo_1001",
+				"client_reference_id": "pay_demo_stripe_001",
+				"amount_total": 7700,
+				"currency": "krw",
+				"payment_status": "paid"
+			}
+		}
+	}`
+
+	req, rec := setupTestRequest(StripeWebhookPath, body)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+}
+
+func TestStripeWebhookRejectsUnpaidPayment(t *testing.T) {
+	_, router := setupTest(t)
+
+	body := `{
+		"id": "evt_demo_1001",
+		"type": "checkout.session.completed",
+		"data": {
+			"object": {
+				"id": "cs_demo_1001",
+				"client_reference_id": "pay_demo_stripe_001",
+				"amount_total": 7700,
+				"currency": "usd",
+				"payment_status": "unpaid"
+			}
+		}
+	}`
+
+	req, rec := setupTestRequest(StripeWebhookPath, body)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusConflict, rec.Code)
+}
+
+func TestStripeWebhookRejectsInvalidJSON(t *testing.T) {
+	_, router := setupTest(t)
+
+	body := `invalid json`
+
+	req, rec := setupTestRequest(StripeWebhookPath, body)
 	router.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code)

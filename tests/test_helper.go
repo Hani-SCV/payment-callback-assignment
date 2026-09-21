@@ -52,4 +52,17 @@ func seedSyntheticData(t *testing.T, db *gorm.DB) {
 	}
 
 	require.NoError(t, db.Create(&payment).Error)
+
+	stripePayment := model.Payment{
+		PublicID:  "pay_demo_stripe_001",
+		OrderID:   order.ID,
+		Provider:  "STRIPE",
+		Status:    "PENDING",
+		Amount:    decimal.NewFromInt(7700),
+		Currency:  "usd",
+		CreatedAt: created,
+		UpdatedAt: created,
+	}
+
+	require.NoError(t, db.Create(&stripePayment).Error)
 }
