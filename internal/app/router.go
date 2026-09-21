@@ -19,5 +19,10 @@ func NewRouter(deps *Dependencies) *http.ServeMux {
 		deps.PaymentHandler.TossReturn,
 	)
 
+	mux.HandleFunc(
+		"/v1/payment-callbacks/stripe/webhook",
+		deps.PaymentHandler.StripeWebhook,
+	)
+
 	return mux
 }

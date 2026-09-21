@@ -66,7 +66,27 @@ func (h *PaymentCallbackHandler) StripeWebhook(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	// TODO: service.ProcessStripeWebhook(...)
+	if err := h.service.ProcessStripeWebhook(r.Context(), req); err != nil {
+		var appErr *errors.AppError
+
+		if stderrors.As(err, &appErr) {
+			writeError(
+				w,
+				appErr.StatusCode,
+				appErr.Code,
+				appErr.Message,
+			)
+			return
+		}
+
+		writeError(
+			w,
+			http.StatusInternalServerError,
+			"INTERNAL_SERVER_ERROR",
+			"internal server error",
+		)
+		return
+	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
 		"message": "received",
