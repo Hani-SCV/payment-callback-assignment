@@ -94,7 +94,47 @@ func (h *PaymentCallbackHandler) StripeWebhook(w http.ResponseWriter, r *http.Re
 }
 
 func (h *PaymentCallbackHandler) AlipayNotify(w http.ResponseWriter, r *http.Request) {
-	// TODO: form parsing
+	if err := r.ParseForm(); err != nil {
+		writeError(
+			w,
+			http.StatusBadRequest,
+			"INVALID_REQUEST",
+			"invalid request",
+		)
+		return
+	}
+
+	req := request.AlipayNotifyRequest{
+		OrderID:     r.FormValue("order_id"),
+		TradeNo:     r.FormValue("trade_no"),
+		TotalAmount: r.FormValue("total_amount"),
+	}
+
+	if err := h.service.ProcessAlipayNotify(r.Context(), req); err != nil {
+		var appErr *errors.AppError
+
+		if stderrors.As(err, &appErr) {
+			writeError(
+				w,
+				appErr.StatusCode,
+				appErr.Code,
+				appErr.Message,
+			)
+			return
+		}
+
+		writeError(
+			w,
+			http.StatusInternalServerError,
+			"INTERNAL_SERVER_ERROR",
+			"internal server error",
+		)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "received",
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, data any) {

@@ -24,5 +24,10 @@ func NewRouter(deps *Dependencies) *http.ServeMux {
 		deps.PaymentHandler.StripeWebhook,
 	)
 
+	mux.HandleFunc(
+		"/v1/payment-callbacks/alipay/notify",
+		deps.PaymentHandler.AlipayNotify,
+	)
+
 	return mux
 }

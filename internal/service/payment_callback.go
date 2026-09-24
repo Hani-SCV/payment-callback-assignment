@@ -348,3 +348,91 @@ func (s *PaymentCallbackService) ProcessStripeWebhook(
 		return nil
 	})
 }
+
+func (s *PaymentCallbackService) ProcessAlipayNotify(
+	ctx context.Context,
+	req request.AlipayNotifyRequest,
+) error {
+	return s.transactionManager.WithTransaction(ctx, func(tx *gorm.DB) error {
+		repos := s.repositoriesWithTx(tx)
+
+		payment, err := repos.Payment.FindByPublicIDForUpdate(ctx, req.OrderID)
+		if err != nil {
+			return err
+		}
+
+		if payment.Provider != "ALIPAY" {
+			return errors.ErrInvalidProvider
+		}
+
+		order, err := repos.Order.FindByIDForUpdate(ctx, payment.OrderID)
+		if err != nil {
+			return err
+		}
+
+		if payment.Status == model.PaymentStatusCompleted {
+			if payment.ExternalTransactionID != nil &&
+				*payment.ExternalTransactionID == req.TradeNo {
+				return nil
+			}
+			return errors.ErrInvalidPaymentStatus
+		}
+
+		if payment.Status != model.PaymentStatusPending {
+			return errors.ErrInvalidPaymentStatus
+		}
+
+		if order.Status != "PAYMENT_PENDING" {
+			return errors.ErrInvalidOrderStatus
+		}
+
+		amount, err := decimal.NewFromString(req.TotalAmount)
+		if err != nil {
+			return errors.ErrInvalidAmount
+		}
+		if !payment.Amount.Equal(amount) {
+			return errors.ErrInvalidAmount
+		}
+
+		if payment.Currency != "CNY" {
+			return errors.ErrInvalidCurrency
+		}
+
+		if err := repos.Payment.Complete(
+			ctx,
+			payment.ID,
+			req.TradeNo,
+		); err != nil {
+			return errors.ErrInvalidPaymentStatus
+		}
+
+		if err := repos.Order.MarkAsPaid(ctx, order.ID); err != nil {
+			return err
+		}
+
+		if err := createPaymentEvent(
+			ctx,
+			repos.PaymentEvent,
+			payment,
+			req.TradeNo,
+			req.TradeNo,
+			amount,
+			payment.Currency,
+		); err != nil {
+			return err
+		}
+
+		if err := createOutboxMessage(
+			ctx,
+			repos.Outbox,
+			payment,
+			req.TradeNo,
+			amount,
+			payment.Currency,
+		); err != nil {
+			return err
+		}
+
+		return nil
+	})
+}
