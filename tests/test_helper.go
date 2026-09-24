@@ -65,4 +65,27 @@ func seedSyntheticData(t *testing.T, db *gorm.DB) {
 	}
 
 	require.NoError(t, db.Create(&stripePayment).Error)
+
+	alipayOrder := model.Order{
+		PublicID:          "ord_demo_alipay_1001",
+		CustomerReference: "customer_demo_alipay",
+		Status:            "PAYMENT_PENDING",
+		CreatedAt:         created,
+		UpdatedAt:         created,
+	}
+
+	require.NoError(t, db.Create(&alipayOrder).Error)
+
+	alipayPayment := model.Payment{
+		PublicID:  "pay_demo_alipay_001",
+		OrderID:   alipayOrder.ID,
+		Provider:  "ALIPAY",
+		Status:    "PENDING",
+		Amount:    decimal.NewFromInt(129900),
+		Currency:  "CNY",
+		CreatedAt: created,
+		UpdatedAt: created,
+	}
+
+	require.NoError(t, db.Create(&alipayPayment).Error)
 }
