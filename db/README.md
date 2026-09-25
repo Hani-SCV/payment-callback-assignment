@@ -9,6 +9,3 @@
 docker compose down -v
 docker compose up -d db
 ```
-
-초기화는 해당 Compose 프로젝트의 로컬 볼륨을 삭제합니다. 필요한 개인 데이터가
-같은 볼륨에 들어 있지 않은지 확인한 뒤 실행하세요.
