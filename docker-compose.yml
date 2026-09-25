@@ -25,18 +25,5 @@ services:
       - assignment-db:/var/lib/mysql
       - ./db/init:/docker-entrypoint-initdb.d:ro
 
-  api:
-    build: .
-    environment:
-      DATABASE_URL: mysql+pymysql://assignment:assignment@db:3306/assignment?charset=utf8mb4
-    ports:
-      - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-    volumes:
-      - .:/workspace
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
 volumes:
   assignment-db:
