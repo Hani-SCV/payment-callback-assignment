@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/Hani-SCV/payment-callback-assignment/internal/config"
+	"github.com/Hani-SCV/payment-callback-assignment/internal/database"
 )
 
 type App struct {
@@ -11,11 +12,12 @@ type App struct {
 }
 
 func New(cfg *config.Config) (*App, error) {
-	dependencies, err := NewDependencies(cfg)
+	db, err := database.Connect(cfg.DatabaseURL)
 	if err != nil {
 		return nil, err
 	}
 
+	dependencies := NewDependencies(db)
 	mux := NewRouter(dependencies)
 
 	server := &http.Server{
