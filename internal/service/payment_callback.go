@@ -150,6 +150,10 @@ func (s *PaymentCallbackService) ProcessTossReturn(
 			return err
 		}
 
+		if payment == nil {
+			return errors.ErrPaymentNotFound
+		}
+
 		// Order 잠금
 		order, err := repos.Order.FindByIDForUpdate(
 			ctx,
@@ -157,6 +161,10 @@ func (s *PaymentCallbackService) ProcessTossReturn(
 		)
 		if err != nil {
 			return err
+		}
+
+		if order == nil {
+			return errors.ErrOrderNotFound
 		}
 
 		// 결제 제공자 검증
@@ -272,10 +280,18 @@ func (s *PaymentCallbackService) ProcessStripeWebhook(
 			return err
 		}
 
+		if payment == nil {
+			return errors.ErrPaymentNotFound
+		}
+
 		// Payment에 연결된 Order 조회 및 row lock
 		order, err := repos.Order.FindByIDForUpdate(ctx, payment.OrderID)
 		if err != nil {
 			return err
+		}
+
+		if order == nil {
+			return errors.ErrOrderNotFound
 		}
 
 		// Provider가 STRIPE인지 검증
@@ -361,6 +377,10 @@ func (s *PaymentCallbackService) ProcessAlipayNotify(
 			return err
 		}
 
+		if payment == nil {
+			return errors.ErrPaymentNotFound
+		}
+
 		if payment.Provider != "ALIPAY" {
 			return errors.ErrInvalidProvider
 		}
@@ -369,6 +389,11 @@ func (s *PaymentCallbackService) ProcessAlipayNotify(
 		if err != nil {
 			return err
 		}
+
+		if order == nil {
+			return errors.ErrOrderNotFound
+		}
+
 
 		if payment.Status == model.PaymentStatusCompleted {
 			if payment.ExternalTransactionID != nil &&

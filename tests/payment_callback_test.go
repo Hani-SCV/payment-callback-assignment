@@ -10,11 +10,11 @@ import (
 
 	"github.com/Hani-SCV/payment-callback-assignment/internal/app"
 	"github.com/Hani-SCV/payment-callback-assignment/internal/config"
+	"github.com/Hani-SCV/payment-callback-assignment/internal/database"
 	"github.com/Hani-SCV/payment-callback-assignment/internal/model"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
 
@@ -29,17 +29,13 @@ func setupTest(t *testing.T) (*gorm.DB, *http.ServeMux) {
 
 	cfg := config.Load()
 
-	db, err := gorm.Open(
-		mysql.Open(cfg.DatabaseURL),
-		&gorm.Config{},
-	)
+	db, err := database.Connect(cfg.DatabaseURL)
 	require.NoError(t, err)
 
 	resetTestDB(t, db)
 	seedSyntheticData(t, db)
 
-	deps, err := app.NewDependencies(cfg)
-	require.NoError(t, err)
+	deps := app.NewDependencies(db)
 
 	router := app.NewRouter(deps)
 
@@ -390,7 +386,7 @@ func TestTossReturnRejectsNonExistentPayment(t *testing.T) {
 	req, rec := setupTestRequest(TossReturnPath, body)
 	router.ServeHTTP(rec, req)
 
-	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestTossReturnRejectsInvalidJSON(t *testing.T) {
@@ -835,7 +831,7 @@ func TestAlipayNotifyRejectsNonExistentPayment(t *testing.T) {
 	)
 	router.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusInternalServerError, rec.Code)
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestAlipayNotifyRejectsInvalidAmount(t *testing.T) {

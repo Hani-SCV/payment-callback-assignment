@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	stderror "errors"
 
 	"github.com/Hani-SCV/payment-callback-assignment/internal/model"
 	"gorm.io/gorm"
@@ -34,6 +35,10 @@ func (r *OrderRepository) FindByIDForUpdate(
 		Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("id = ?", id).
 		Take(order).Error
+
+	if stderror.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
 
 	if err != nil {
 		return nil, err

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	stderrors "errors"
 	"time"
 
 	"github.com/Hani-SCV/payment-callback-assignment/internal/model"
@@ -35,6 +36,10 @@ func (r *PaymentRepository) FindByPublicIDForUpdate(
 		Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where("public_id = ?", publicID).
 		Take(payment).Error
+
+	if stderrors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
 
 	if err != nil {
 		return nil, err

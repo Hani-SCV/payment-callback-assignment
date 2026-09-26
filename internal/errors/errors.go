@@ -11,6 +11,18 @@ func (e *AppError) Error() string {
 }
 
 var (
+	ErrPaymentNotFound = &AppError{
+		Code:       "PAYMENT_NOT_FOUND",
+		Message:    "payment not found",
+		StatusCode: 404,
+	}
+
+	ErrOrderNotFound = &AppError{
+		Code:       "ORDER_NOT_FOUND",
+		Message:    "order not found",
+		StatusCode: 404,
+	}
+
 	ErrInvalidProvider = &AppError{
 		Code:       "INVALID_PROVIDER",
 		Message:    "invalid payment provider",
