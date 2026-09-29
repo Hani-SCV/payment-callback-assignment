@@ -1,15 +1,43 @@
+# Environment
 .env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build
+dist/
+
+# Test / Coverage
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# IDE / Editor
+.idea/
+.vscode/
+.DS_Store
+
+# AI / Agent tools
 .claude/
 .codex/
 .agents/
+
+# Python
 .pytest_cache/
 .ruff_cache/
 .venv/
 __pycache__/
 *.py[cod]
-*.zip
-dist/
 
-# Local evaluation materials. Do not include them in submission archives.
+# Archives
+*.zip
+
+# Local evaluation materials
 /internal/
 /grading/
