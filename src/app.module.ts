@@ -4,6 +4,7 @@ import { AppService } from './app.service.js';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import configuration from './common/config/configuration.js';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { PaymentCallbackModule } from './payment_callback/payment-callback.module.js';
 
 @Module({
   imports: [
@@ -11,6 +12,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
       isGlobal: true,
       load: [configuration],
     }),
+
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
@@ -24,6 +26,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
         synchronize: false,
       }),
     }),
+
+    PaymentCallbackModule,
   ],
   controllers: [AppController],
   providers: [AppService],
